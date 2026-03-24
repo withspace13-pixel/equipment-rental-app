@@ -1,44 +1,59 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-// 관리할 장비 목록 및 상세 요금 설명
-const ITEM_TYPES = [
+// 관리할 장비 목록
+const BASE_ITEM_TYPES = [
   {
     id: 'bw',
     name: '흑백프린터',
     icon: '🖨️',
     color: 'text-gray-700 bg-gray-100',
-    desc: '1~3일 8만원 / 4~5일 10만원 / 6일~ +8천원',
   },
   {
     id: 'color',
     name: '컬러프린터',
     icon: '🎨',
     color: 'text-blue-700 bg-blue-100',
-    desc: '1~3일 10만원 / 4~5일 14만원 / 6일~ +1만원',
   },
   {
     id: 'tv',
     name: 'TV',
     icon: '📺',
     color: 'text-red-700 bg-red-100',
-    desc: '최초 30만원 / 연속 1일 추가 +3만원',
   },
 ];
 
+const DEFAULT_PRICING = {
+  bw: { upTo3: 80000, day4to5: 110000, extraPerDay: 8000 },
+  color: { upTo3: 100000, day4to5: 140000, extraPerDay: 10000 },
+  tv: { base: 300000, extraPerDay: 30000 },
+};
+
+const formatMoney = (value) => `${Number(value || 0).toLocaleString()}원`;
+
+const buildItemDescription = (itemId, pricing) => {
+  if (itemId === 'tv') {
+    return `기본 ${formatMoney(pricing.tv.base)} / 연속 1일 추가 +${formatMoney(pricing.tv.extraPerDay)}`;
+  }
+  if (itemId === 'color') {
+    return `1~3일 ${formatMoney(pricing.color.upTo3)} / 4~5일 ${formatMoney(pricing.color.day4to5)} / 6일~ +${formatMoney(pricing.color.extraPerDay)}`;
+  }
+  return `1~3일 ${formatMoney(pricing.bw.upTo3)} / 4~5일 ${formatMoney(pricing.bw.day4to5)} / 6일~ +${formatMoney(pricing.bw.extraPerDay)}`;
+};
+
 // 계단식 요금 계산 핵심 로직 함수
-const calculateItemCost = (itemId, days) => {
+const calculateItemCost = (itemId, days, pricing) => {
   if (days <= 0) return 0;
 
   if (itemId === 'tv') {
-    return 300000 + (days - 1) * 30000;
+    return pricing.tv.base + (days - 1) * pricing.tv.extraPerDay;
   } else if (itemId === 'color') {
-    if (days <= 3) return 100000;
-    if (days <= 5) return 140000;
-    return 140000 + (days - 5) * 10000;
+    if (days <= 3) return pricing.color.upTo3;
+    if (days <= 5) return pricing.color.day4to5;
+    return pricing.color.day4to5 + (days - 5) * pricing.color.extraPerDay;
   } else if (itemId === 'bw') {
-    if (days <= 3) return 80000;
-    if (days <= 5) return 100000;
-    return 100000 + (days - 5) * 8000;
+    if (days <= 3) return pricing.bw.upTo3;
+    if (days <= 5) return pricing.bw.day4to5;
+    return pricing.bw.day4to5 + (days - 5) * pricing.bw.extraPerDay;
   }
   return 0;
 };
@@ -77,24 +92,37 @@ const formatPeriod = (startStr, endStr) => {
 };
 
 // 💡 상세 견적 텍스트 포맷팅 (예: (기본 1일 300,000원 + 추가 4일 x 30,000원) x 1대)
-const formatCostBreakdown = (itemId, days, qty) => {
+const formatCostBreakdown = (itemId, days, qty, pricing) => {
   if (itemId === 'tv') {
-    if (days === 1) return `(기본 1일 300,000원) × ${qty}대`;
-    return `(기본 1일 300,000원 + 추가 ${days - 1}일 × 30,000원) × ${qty}대`;
+    if (days === 1) return `(기본 1일 ${formatMoney(pricing.tv.base)}) × ${qty}대`;
+    return `(기본 1일 ${formatMoney(pricing.tv.base)} + 추가 ${days - 1}일 × ${formatMoney(pricing.tv.extraPerDay)}) × ${qty}대`;
   } else if (itemId === 'color') {
-    if (days <= 3) return `(기본 ${days}일 100,000원) × ${qty}대`;
-    if (days <= 5) return `(기본 ${days}일 140,000원) × ${qty}대`;
-    return `(기본 5일 140,000원 + 추가 ${days - 5}일 × 10,000원) × ${qty}대`;
+    if (days <= 3) return `(기본 ${days}일 ${formatMoney(pricing.color.upTo3)}) × ${qty}대`;
+    if (days <= 5) return `(기본 ${days}일 ${formatMoney(pricing.color.day4to5)}) × ${qty}대`;
+    return `(기본 5일 ${formatMoney(pricing.color.day4to5)} + 추가 ${days - 5}일 × ${formatMoney(pricing.color.extraPerDay)}) × ${qty}대`;
   } else if (itemId === 'bw') {
-    if (days <= 3) return `(기본 ${days}일 80,000원) × ${qty}대`;
-    if (days <= 5) return `(기본 ${days}일 100,000원) × ${qty}대`;
-    return `(기본 5일 100,000원 + 추가 ${days - 5}일 × 8,000원) × ${qty}대`;
+    if (days <= 3) return `(기본 ${days}일 ${formatMoney(pricing.bw.upTo3)}) × ${qty}대`;
+    if (days <= 5) return `(기본 ${days}일 ${formatMoney(pricing.bw.day4to5)}) × ${qty}대`;
+    return `(기본 5일 ${formatMoney(pricing.bw.day4to5)} + 추가 ${days - 5}일 × ${formatMoney(pricing.bw.extraPerDay)}) × ${qty}대`;
   }
   return '';
 };
 
 export default function App() {
   const [viewMode, setViewMode] = useState('list');
+  const [pricing, setPricing] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pricingConfig');
+      if (!saved) return DEFAULT_PRICING;
+      return { ...DEFAULT_PRICING, ...JSON.parse(saved) };
+    } catch {
+      return DEFAULT_PRICING;
+    }
+  });
+  const itemTypes = BASE_ITEM_TYPES.map((item) => ({
+    ...item,
+    desc: buildItemDescription(item.id, pricing),
+  }));
 
   // --- 1. 달력 뷰 상태 ---
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -105,7 +133,7 @@ export default function App() {
   // --- 2. 목록형 뷰 상태 ---
   const [listData, setListData] = useState(() => {
     const initial = {};
-    ITEM_TYPES.forEach((t) => (initial[t.id] = []));
+    BASE_ITEM_TYPES.forEach((t) => (initial[t.id] = []));
     return initial;
   });
 
@@ -130,6 +158,44 @@ export default function App() {
   const handleTabChange = (mode) => {
     setViewMode(mode);
     setCalcResult(null);
+  };
+
+  useEffect(() => {
+    localStorage.setItem('pricingConfig', JSON.stringify(pricing));
+  }, [pricing]);
+
+  const handlePricingChange = (itemId, field, value) => {
+    const parsed = Math.max(0, parseInt(value, 10) || 0);
+    setPricing((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...prev[itemId],
+        [field]: parsed,
+      },
+    }));
+    setCalcResult(null);
+  };
+
+  const removeItemEverywhere = (itemId) => {
+    setEvents((prev) => {
+      const next = {};
+      Object.entries(prev).forEach(([date, dayData]) => {
+        const updatedDayData = { ...dayData };
+        delete updatedDayData[itemId];
+        if (Object.values(updatedDayData).some((qty) => qty > 0)) {
+          next[date] = updatedDayData;
+        }
+      });
+      return next;
+    });
+
+    setListData((prev) => ({
+      ...prev,
+      [itemId]: [],
+    }));
+
+    setCalcResult(null);
+    showToast('해당 장비가 전체 일정/계산에서 삭제되었습니다.');
   };
 
   // --- 달력 뷰 단축키 ---
@@ -228,7 +294,7 @@ export default function App() {
   // 💰 통합 계산 로직
   const handleCalculate = () => {
     let totalCost = 0;
-    const details = ITEM_TYPES.reduce((acc, type) => ({ ...acc, [type.id]: { cost: 0, blocks: [] } }), {});
+    const details = itemTypes.reduce((acc, type) => ({ ...acc, [type.id]: { cost: 0, blocks: [] } }), {});
     const allActiveDates = new Set();
 
     if (viewMode === 'calendar') {
@@ -240,10 +306,10 @@ export default function App() {
       });
 
       billableDates.forEach((d) => {
-        if (ITEM_TYPES.some((t) => events[d] && events[d][t.id] > 0)) allActiveDates.add(d);
+        if (itemTypes.some((t) => events[d] && events[d][t.id] > 0)) allActiveDates.add(d);
       });
 
-      ITEM_TYPES.forEach((type) => {
+      itemTypes.forEach((type) => {
         const dayCounts = billableDates.map((dateStr) => ({
           dateStr,
           qty: (events[dateStr] && events[dateStr][type.id]) || 0,
@@ -301,7 +367,7 @@ export default function App() {
             }
 
             const days = endIdx - startIdx + 1;
-            const cost = calculateItemCost(type.id, days) * minQty;
+            const cost = calculateItemCost(type.id, days, pricing) * minQty;
             details[type.id].cost += cost;
             totalCost += cost;
 
@@ -319,7 +385,7 @@ export default function App() {
       });
     } else {
       // 목록형 뷰 계산
-      ITEM_TYPES.forEach((type) => {
+      itemTypes.forEach((type) => {
         const schedules = listData[type.id] || [];
         schedules.forEach((sched) => {
           if (!sched.startDate || !sched.endDate || sched.qty <= 0) return;
@@ -342,7 +408,7 @@ export default function App() {
           }
 
           if (itemActiveDays > 0) {
-            const cost = calculateItemCost(type.id, itemActiveDays) * sched.qty;
+            const cost = calculateItemCost(type.id, itemActiveDays, pricing) * sched.qty;
             details[type.id].cost += cost;
             totalCost += cost;
             // 💡 시작일~종료일 저장
@@ -365,7 +431,7 @@ export default function App() {
     const blockStrsForUI = {};
     const itemSections = [];
 
-    ITEM_TYPES.forEach((type) => {
+    itemTypes.forEach((type) => {
       const detail = details[type.id];
       blockStrsForUI[type.id] = [];
 
@@ -378,9 +444,9 @@ export default function App() {
           // (3/23~27) 같은 날짜 포맷
           const periodStr = formatPeriod(b.startDate, b.endDate);
           // (기본 1일 300,000원 + 추가 4일 x 30,000원) x 1대 같은 상세 설명
-          const breakdownStr = formatCostBreakdown(type.id, b.days, b.qty);
+          const breakdownStr = formatCostBreakdown(type.id, b.days, b.qty, pricing);
           // 이 블록의 최종 금액
-          const blockCost = calculateItemCost(type.id, b.days) * b.qty;
+          const blockCost = calculateItemCost(type.id, b.days, pricing) * b.qty;
           itemTotalCost += blockCost;
 
           sectionText += `  ${breakdownStr} ${periodStr} = ${blockCost.toLocaleString()}원\n`;
@@ -429,7 +495,7 @@ export default function App() {
         </div>
 
         <div className="space-y-6">
-          {ITEM_TYPES.map((type) => (
+          {itemTypes.map((type) => (
             <div
               key={type.id}
               className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-gray-50/50 transition-colors focus-within:border-blue-300"
@@ -562,7 +628,7 @@ export default function App() {
               const dayOfWeek = parseDateStr(item.date).getDay();
               const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
               const isExcluded = !includeWeekend && isWeekend;
-              const activeItems = ITEM_TYPES.filter((type) => dayData[type.id] > 0);
+              const activeItems = itemTypes.filter((type) => dayData[type.id] > 0);
 
               return (
                 <div
@@ -611,7 +677,7 @@ export default function App() {
           {selectedDate ? (
             <div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                {ITEM_TYPES.map((type) => {
+                {itemTypes.map((type) => {
                   const currentValue = (events[selectedDate] && events[selectedDate][type.id]) || 0;
                   return (
                     <div
@@ -655,6 +721,119 @@ export default function App() {
     );
   };
 
+  const renderSettingsMode = () => {
+    return (
+      <div className="bg-white rounded-b-2xl shadow-xl overflow-hidden border border-t-0 border-gray-200 p-6 md:p-8">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-700 flex items-center gap-2">⚙️ 단가 설정</h2>
+          <p className="text-sm text-gray-500 mt-2">
+            장비 단가를 수정하면 목록형/캘린더 계산 결과에 즉시 반영됩니다.
+          </p>
+        </div>
+
+        <div className="space-y-5">
+          <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/60">
+            <h3 className="font-bold text-lg text-gray-800 mb-3">🖨️ 흑백프린터</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">1~3일 기본 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.bw.upTo3}
+                  onChange={(e) => handlePricingChange('bw', 'upTo3', e.target.value)}
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">4~5일 기본 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.bw.day4to5}
+                  onChange={(e) => handlePricingChange('bw', 'day4to5', e.target.value)}
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">5일 초과 1일 추가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.bw.extraPerDay}
+                  onChange={(e) => handlePricingChange('bw', 'extraPerDay', e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/60">
+            <h3 className="font-bold text-lg text-gray-800 mb-3">🎨 컬러프린터</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">1~3일 기본 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.color.upTo3}
+                  onChange={(e) => handlePricingChange('color', 'upTo3', e.target.value)}
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">4~5일 기본 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.color.day4to5}
+                  onChange={(e) => handlePricingChange('color', 'day4to5', e.target.value)}
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">5일 초과 1일 추가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.color.extraPerDay}
+                  onChange={(e) => handlePricingChange('color', 'extraPerDay', e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/60">
+            <h3 className="font-bold text-lg text-gray-800 mb-3">📺 TV</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">기본 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.tv.base}
+                  onChange={(e) => handlePricingChange('tv', 'base', e.target.value)}
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                <span className="font-medium">1일 추가 단가</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="mt-1 w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  value={pricing.tv.extraPerDay}
+                  onChange={(e) => handlePricingChange('tv', 'extraPerDay', e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center py-10 px-4 font-sans text-gray-800">
       <div
@@ -688,6 +867,16 @@ export default function App() {
             >
               📅 캘린더 입력
             </button>
+            <button
+              onClick={() => handleTabChange('settings')}
+              className={`px-6 py-3 font-bold text-sm rounded-t-lg transition-colors border-b-2 whitespace-nowrap ${
+                viewMode === 'settings'
+                  ? 'border-blue-600 text-blue-700 bg-blue-50/50'
+                  : 'border-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+              }`}
+            >
+              ⚙️ 단가 설정
+            </button>
           </div>
           <div className="flex items-center gap-3 px-4 py-3 sm:py-0 w-full sm:w-auto justify-end border-t sm:border-t-0 border-gray-100">
             <span className="text-sm font-medium text-gray-600">주말 요금 적용</span>
@@ -709,7 +898,11 @@ export default function App() {
           </div>
         </div>
 
-        {viewMode === 'calendar' ? renderCalendarMode() : renderListMode()}
+        {viewMode === 'calendar'
+          ? renderCalendarMode()
+          : viewMode === 'settings'
+            ? renderSettingsMode()
+            : renderListMode()}
       </div>
 
       <div className="w-full max-w-4xl mt-6 bg-white p-6 rounded-2xl shadow-md border border-gray-200">
@@ -742,14 +935,22 @@ export default function App() {
 
             {/* 결과 요약 (블록별 UI 출력) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              {ITEM_TYPES.map((type) => {
+              {itemTypes.map((type) => {
                 const detail = calcResult.details[type.id];
                 if (detail.cost === 0) return null;
                 return (
                   <div key={type.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex flex-col">
-                    <span className="font-bold text-gray-700 mb-2 flex items-center gap-1">
-                      {type.icon} {type.name}
-                    </span>
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <span className="font-bold text-gray-700 flex items-center gap-1">
+                        {type.icon} {type.name}
+                      </span>
+                      <button
+                        onClick={() => removeItemEverywhere(type.id)}
+                        className="text-[11px] px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 font-semibold"
+                      >
+                        삭제
+                      </button>
+                    </div>
                     <div className="text-sm text-gray-600 flex flex-col gap-1.5 break-keep">
                       {calcResult.blockStrsForUI[type.id].map((str, i) => (
                         <span
